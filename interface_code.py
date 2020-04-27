@@ -433,7 +433,6 @@ def plot_bands_and_stream_together(stream, bands, args):
     plt.show()
 
 
-
 def generate_noisy_sine(args, sine_args):
     A = sine_args[0]
     w = sine_args[1]
@@ -459,23 +458,23 @@ def generate_nn_samples(args, nn_samples, B_args, U_args, D_args):
     
     return data
 
-def convert_data_to_nn_form(data):
-    """
-    data - dictionary, with U, M, B as keys representing buttons
-
-    returns raveled data in appropriate form
-    """
-    data_B = data['B']
-    data_U = data['U']
-    data_D = data['D']
-
-    data_B_ravel = [np.ravel(i) for i in data_B]
-    data_U_ravel = [np.ravel(i) for i in data_U]
-    data_D_ravel = [np.ravel(i) for i in data_D]
-
-    data_dict = {'B': data_B_ravel, 'U': data_U_ravel, 'D': data_D_ravel}
-
-    return data_dict
+##def convert_data_to_nn_form(data):
+##    """
+##    data - dictionary, with U, M, B as keys representing buttons
+##
+##    returns raveled data in appropriate form
+##    """
+##    data_B = data['B']
+##    data_U = data['U']
+##    data_D = data['D']
+##
+##    data_B_ravel = [np.ravel(i) for i in data_B]
+##    data_U_ravel = [np.ravel(i) for i in data_U]
+##    data_D_ravel = [np.ravel(i) for i in data_D]
+##
+##    data_dict = {'B': data_B_ravel, 'U': data_U_ravel, 'D': data_D_ravel}
+##
+##    return data_dict
 
 def stack_data(data_dict):
     """
@@ -622,6 +621,91 @@ def convert_preds_to_commands(predictions):
             commands.append('Do nothing')
     return commands
 
+
+def generate_sample_train_test():
+    X_train_gen = {x:np.random.randint(16,
+                size = (300, 8000)) for x in ['B', 'U', 'D']}
+    
+    y_train_gen = {}
+    names = ['B', 'U', 'D']
+    for i in range(3):
+        y_train_gen[names[i]] = np.random.choice([0,1],300)
+
+    return X_train_gen, y_train_gen
+
+def separate_labels_into_BUD(X_train, y_train):
+    X_B = X_train['B']
+    X_U = X_train['U']
+    X_D = X_train['D']
+
+    y_B = 1 * y_train['B']
+    y_U = 2 * y_train['U']
+    y_D = 3 * y_train['D']
+
+    X = np.vstack([X_B, X_U, X_D])
+    y = np.concatenate([y_B, y_U, y_D])
+
+    indices = np.arange(X.shape[0])
+    np.random.shuffle(indices)
+
+    X = X[indices]
+    y = y[indices]
+
+    y_train_B = 1 * (y == 1)
+    y_train_U = 1 * (y == 2)
+    y_train_D= 1 * (y == 3)
+
+    return X, y_B_train, y_U_train, y_D_train
+
+def train_networks(X, y_train_B, y_train_U, y_train_D, networks, epochs):
+    networks['B'].fit(X, y_train_B, epochs = epochs)
+    networks['U'].fit(X, y_train_U, epochs = epochs)
+    networks['D'].fit(X, y_train_U, epochs = epochs)
+
+
+def train_networks_final(X_train, y_train, networks, n_epochs):
+    X, y_train_B, y_train_U, y_train_D  = separate_labels_into_BUD(X_train,
+                                                                   y_train)
+    train_networks(X, y_train_B, y_train_U, y_train_D, networks, n_epochs)
+    
+def test_networks_final(pred_data, networks, args):
+    #0 is Button, 1 is Up, 2 is Down
+    final_predictions = get_predictions(pred_data, networks, args)
+
+    #Get the commands associated with the final_predictions
+    commands = convert_preds_to_commands(final_predictions)
+    return commands
+
+def convert_data_to_nn_form(data, args):
+    """
+
+    Function that converts the data to the
+    appropriate form for the neural networks
+
+    Arguments:
+    ----------
+
+        data : (numpy array), an array of the form
+                                (n_data_points, n_channels, sample_size)
+                                or of the form (n_channels, sample_size).
+        args : (dictionary), the dictionary of the arguments
+
+    Returns:
+    --------
+
+        data : (numpy array), the above data array reshaped to be of the form
+                            (n_data_points, n_channels * sample_size)
+    
+    """
+
+    if len(data.shape) == 3:
+        data = data.reshape(data.shape[0], data.shape[1] * data.shape[2])
+        return data
+    if len(data.shape) == 2:
+        data = data.reshape(1, data.shape[0] * data.shape[1])
+        return data
+
+
 ################################################################################
 ################################################################################
 #
@@ -717,93 +801,50 @@ def send_to_program(command):
 ################################################################################
 ################################################################################
 
-
+###These are the arguments for the amplitude, frequency, and offset
+###For generating the dataset
+##B_args = [10, 3, 45]
+##U_args = [8, 5, 22.5]
+##D_args = [6, 2, 90]
+##
+###Dictionary containing all generated samples for the nn test
+###Create a dictionary that contains lists of 100 samples of each B,U, and D.
+###X_train['B'] is a list
+##nn_samples = 100
+##X_train = generate_nn_samples(args, nn_samples, B_args, U_args, D_args)
+##
+##X_train_good = convert_data_to_nn_form(X_train, args)
+##X_train_final, labels = get_data_and_labels(X_train_good)
+##
 
 #Make the models
 model_B = make_network(args)
 model_U = make_network(args)
 model_D = make_network(args)
 
+networks = name(B = model_B, U = model_U, D = model_D)
 
-#These are the arguments for the amplitude, frequency, and offset
-#For generating the dataset
-B_args = [10, 3, 45]
-U_args = [8, 5, 22.5]
-D_args = [6, 2, 90]
+#Create the network dictionary and epoch numbers.
+networks = name(B = model_B, U = model_U, D = model_D)
+n_epochs = 10
 
-#Dictionary containing all generated samples for the nn test
-#Create a dictionary that contains lists of 100 samples of each B,U, and D.
-#X_train['B'] is a list
-nn_samples = 100
-X_train = generate_nn_samples(args, nn_samples, B_args, U_args, D_args)
-X_train_good = convert_data_to_nn_form(X_train)
-X_train_final, labels = get_data_and_labels(X_train_good)
+X_train, y_train = generate_sample_train_test()
 
-#Get training labels for Button, Up, and Down.
-labels_B = 1*(labels == 0)
-labels_U = 1*(labels == 1)
-labels_D = 1*(labels == 2)
- 
-#Train the data with the labels.
-model_B.fit(X_train_final, labels_B, epochs = 10)
-model_U.fit(X_train_final, labels_U, epochs = 10)
-model_D.fit(X_train_final, labels_D, epochs = 10)
+#Part 2: Train the networks.
 
-models = name(B = model_B, U = model_U, D = model_D)
+#X_train must be a dictionary (keys: "B", "U", "D") of numpy arrays of shape
+#(m, n_channels * sample_size), where "m" is the number of data points
+#that were collected. y_train is a dictionary (keys: "B", "U", "D") of
+#numpy arrays of shape (m,) where "m" is the number of data points.
+train_networks_final(X_train, y_train, networks, n_epochs)
 
-#Get the prediction data
-pred_data = X_train_final[:5]
+#Part 3: Test data on the networks.
 
-#0 is Button, 1 is Up, 2 is Down
-final_predictions = get_predictions(pred_data, models, args)
-
-#Get the commands associated with the final_predictions
-commands = convert_preds_to_commands(final_predictions)
-
-
-
-################################################################################
-################################################################################
-#
-#                              FFT Test
-#
-################################################################################
-################################################################################
-
-
-from scipy.fft import fft, ifft
-
-#Take the fft of each column in the dataframe, "axis=0" specifies this.
-#Do the same for each band
-stream_fft = fft(stream, axis = 0)
-bands_fft = {key:{i:fft(bands[key][i], axis = 0) for i in range(len(bands))} \
-             for key in bands.keys()}
-
-fig, ax = plt.subplots(8,1)
-for i in range(8):
-    ax[i].plot(stream_fft[:, i])
-plt.show()
-
-a = np.sin( np.linspace(0,2*np.pi, 1000)) + np.cos( np.linspace(0,2*np.pi, 1000))
-##noise = np.random.normal(0,1, 1000)
-##a = a + noise
-b = fft(a)
-
-fig, ax = plt.subplots(2,1)
-ax[0].plot(a)
-ax[1].plot(np.real(b))
-
-plt.show()
-
-c = generate_samples_2(args)
-c = to_dataframe(args, c)
-fig, ax = plt.subplots(8,1)
-for i in range(8):
-    ax[i].plot(fft(c, axis = 0)[:, i])
-    ax[i].plot(c.iloc[:, i])
-
-plt.show()
-
+#Prediction data must have shape (m, n_channels * sample_size) or
+#of shape (n_channels, sample_size)
+prediction_data = np.random.randint(16, size = (3, 8, 1000))
+pred_data = convert_data_to_nn_form(prediction_data, args)
+commands = test_networks_final(pred_data, networks, args)
 
 ################################################################################
 ################################################################################
@@ -959,3 +1000,46 @@ plt.show()
 ##    
 ##variance = 1
 ##test_9(variance)
+
+
+################################################################################
+################################################################################
+#
+#                              FFT Test
+#
+################################################################################
+################################################################################
+
+
+from scipy.fft import fft, ifft
+
+#Take the fft of each column in the dataframe, "axis=0" specifies this.
+#Do the same for each band
+stream_fft = fft(stream, axis = 0)
+bands_fft = {key:{i:fft(bands[key][i], axis = 0) for i in range(len(bands))} \
+             for key in bands.keys()}
+
+fig, ax = plt.subplots(8,1)
+for i in range(8):
+    ax[i].plot(stream_fft[:, i])
+plt.show()
+
+a = np.sin( np.linspace(0,2*np.pi, 1000)) + np.cos( np.linspace(0,2*np.pi, 1000))
+##noise = np.random.normal(0,1, 1000)
+##a = a + noise
+b = fft(a)
+
+fig, ax = plt.subplots(2,1)
+ax[0].plot(a)
+ax[1].plot(np.real(b))
+
+plt.show()
+
+c = generate_samples_2(args)
+c = to_dataframe(args, c)
+fig, ax = plt.subplots(8,1)
+for i in range(8):
+    ax[i].plot(fft(c, axis = 0)[:, i])
+    ax[i].plot(c.iloc[:, i])
+
+plt.show()
