@@ -38,7 +38,7 @@ def send_to_program(x):
 			
 	#If the value inputted is invalid (not "B", "D", or "U") then print "Invalid input: nothing was done".
 	else:
-		print('Invalid input: nothing was done')
+		print('Nothing was done')
 
 #make a tkinter element named master
 #master will hold elements w (scale) and b (button)
