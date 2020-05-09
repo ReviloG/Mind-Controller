@@ -17,3 +17,6 @@ Tools -> CPU Frequency -> 80 Mhz
 Tools -> Upload Speed -> 921600
 
 Flashed the MCU with 64 bit flasher exe at: github.com/nodemcu/nodemcu-flasher/tree/master/Win64/Release
+
+Uses Plotter 2.3.3 to view the signal
+https://github.com/devinaconley/arduino-plotter
