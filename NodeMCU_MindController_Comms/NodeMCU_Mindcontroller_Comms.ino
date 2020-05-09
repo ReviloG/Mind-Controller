@@ -21,7 +21,11 @@
 *  
  */
 
+#include <ESP8266WiFi.h>
 #include <SPI.h>
+#include <Plotter.h>
+
+#define PLOTMODE true
 
 // ADS1299 registers
 #define ID 0x0
@@ -59,57 +63,64 @@
 #define SDATAC 0x11 //Stop continuous data read
 #define RDATA 0x12
 
+// Pin assignments
 uint8_t mc_drdy = 5;
 uint8_t mc_start = 4;
 uint8_t mc_reset = 0;
 
-bool dataReady = false;
-
 SPISettings settings(4000000, MSBFIRST, SPI_MODE1); //CPOL 0, CPHA 1
 
+struct int24_t {
+  signed int data : 24;
+} __attribute__((packed));
+
 typedef struct {
-  uint8_t statusReg[3];
-  uint8_t ch1[3];
-  uint8_t ch2[3];
-  uint8_t ch3[3];
-  uint8_t ch4[3];
-  uint8_t ch5[3];
-  uint8_t ch6[3];
-  uint8_t ch7[3];
-  uint8_t ch8[3];
+  int24_t statusReg;
+  int24_t data[8];
 } rawADSData;
 
 typedef struct {
-  int32_t ch1;
-  double ch1p;
-  int32_t ch2;
-  double ch2p;
-  int32_t ch3;
-  double ch3p;
-  int32_t ch4;
-  double ch4p;
-  int32_t ch5;
-  double ch5p;
-  int32_t ch6;
-  double ch6p;
-  int32_t ch7;
-  double ch7p;
-  int32_t ch8;
-  double ch8p;
+  int32_t statusReg;
+  int32_t ch[8]; 
 } ADSData;
 
+union paddedADSData{
+  int32_t data32;
+  int24_t data24;
+  uint8_t dataAry[4];
+};
+
+bool dataReady = false;
+ADSData data;
+Plotter p;
+int32_t plotCh[8];
+int32_t graphMin = 0;
+int32_t graphMax = 2000000;
+
+// Need to convert the 24bit data to 32bit for usability
 ADSData processADSData(rawADSData raw){
-  ADSData d;
+  ADSData data;
+  uint8_t temp;
   
-  int32_t ch1temp = (raw.ch1[0] << 16) + (raw.ch1[1] << 8) + raw.ch1[2];
-  if (raw.ch1[0] < 0x80){
-    d.ch1 = ch1temp;    
-  } else {
-    d.ch1 = ch1temp - 0x1000000;
+  if (!PLOTMODE) Serial.print("Raw: ");
+  
+  for (int i=0; i<8; i++){
+  
+    paddedADSData a;
+    a.data32 = 0;
+    a.data24 = raw.data[i];
+    temp = a.dataAry[0];
+    a.dataAry[0] = a.dataAry[2];
+    a.dataAry[2] = temp;
+    if (!PLOTMODE){
+      Serial.print(a.data32,HEX);
+      Serial.print(' ');
+    }
+    
+    data.ch[i] = ((a.data32 << 8) >> 8);
   }
-  d.ch1p = (double)d.ch1 / 0xFFFFFF;
-  
-  return d;
+  if (!PLOTMODE) Serial.println();
+  return data;
 }
 
 byte readRegister(uint8_t r){  
@@ -131,7 +142,7 @@ byte readRegister(uint8_t r){
 
 void writeRegister(uint8_t r, uint8_t data){
   // b1 = b010r rrrr where r rrrr is the register address
-  byte b1 = 0x80 + r;
+  byte b1 = 0x40 + r;
   // b2 = b000n nnnn where n nnnn is the number of registers to write - 1
   byte b2 = 0x00;
 
@@ -162,29 +173,43 @@ rawADSData readData(){
   SPI.beginTransaction(settings);
   digitalWrite(SS,LOW);
   SPI.transfer(dbuffer, 27);
-
-//  Serial.println("dbuffer:");
-//  for (int i=0;i<9;i++){
-//    Serial.print(i);
-//    Serial.print(": ");
-//    Serial.print(dbuffer[i], HEX);
-//    Serial.print(' ');
-//    Serial.print(dbuffer[i+1], HEX);
-//    Serial.print(' ');
-//    Serial.print(dbuffer[i+2], HEX);
-//    Serial.println();
-//  }
-//  Serial.println();
-
   digitalWrite(SS,HIGH);
   SPI.endTransaction();
+
+  if(!PLOTMODE){
+    for (int i=0;i<27;i++){
+      Serial.print(dbuffer[i],HEX);
+      Serial.print(' ');
+    }
+    Serial.println();
+  }
   
   return *(rawADSData*)dbuffer;
+}
+
+void readLoop(){
+  if(dataReady){
+      data = processADSData(readData());
+      if(PLOTMODE){
+        p.Plot();
+      }
+    }
+    yield();
 }
 
 void setup() {
   SPI.begin();
 
+  if (PLOTMODE){
+    p.Begin();
+    p.AddTimeGraph("MindController", 2000, "Ch1", data.ch[0]); //, "Ch2", data.ch[1], "Ch3", data.ch[2], "Ch4", data.ch[3]); //, "Ch5", data.ch[4], "Ch6", data.ch[5]);
+  } else {
+    Serial.begin(115200);
+    Serial.println();
+    Serial.println("-------------------------------------------------------------------------------------------");
+    Serial.println();
+    Serial.println("Started.");
+  }
   // Pin setups
   pinMode(SS, OUTPUT);
   digitalWrite(SS, HIGH);
@@ -197,12 +222,6 @@ void setup() {
   pinMode(mc_reset, OUTPUT);
   digitalWrite(mc_reset, HIGH);
   // End pin setup
-
-  Serial.begin(500000);
-  Serial.println();
-  Serial.println("-------------------------------------------------------------------------------------------");
-  Serial.println();
-  Serial.println("Started.");
 
   // Reset the ADS1299
   digitalWrite(mc_reset, LOW);
@@ -218,57 +237,81 @@ void setup() {
   Serial.print("ID Register: ");
   Serial.println(id, BIN);
 
-  // Set to internal VREF
+  // Set to internal BIASREF
   writeRegister(CONFIG3, 0xE0);
 
-  // Set data rate to fmod / 4096 = 250Samples / second
+  // Set data rate to fmod / 4098 = 250Samples / second
   writeRegister(CONFIG1, 0x96);
+  Serial.print("CONFIG1 (0x96): ");
+  Serial.println(readRegister(CONFIG1), HEX);
 
   // Ensure the test signal is turned off
   writeRegister(CONFIG2, 0xC0);
+  Serial.print("CONFIG2 (0xC0): ");
+  Serial.println(readRegister(CONFIG2), HEX);
 
-  // Set all channels to input short
-  writeRegister(CH1SET, 0x01);
-  writeRegister(CH2SET, 0x01);
-  writeRegister(CH3SET, 0x01);
-  writeRegister(CH4SET, 0x01);
-  writeRegister(CH5SET, 0x01);
-  writeRegister(CH6SET, 0x01);
-  writeRegister(CH7SET, 0x01);
-  writeRegister(CH8SET, 0x01);
+  // Set all channels to input short for noise measurements
+  for (int i=CH1SET; i<=CH8SET; i++){
+    writeRegister(i, 0x01);
+  }
+  Serial.print("CH1SET (0x51): ");
+  Serial.println(readRegister(CH1SET), HEX);
 
   // start data conversion
   sendCmd(START);
 
   // read data continuous
-  Serial.println("Starting data collection.");
   attachInterrupt(digitalPinToInterrupt(mc_drdy), drdy_handler, FALLING);
   sendCmd(RDATAC);
 
-  rawADSData dRaw;
-  ADSData data;
+  // read data for 5 seconds to see baseline noise/offset
   uint32_t startTime = millis();
-  while (millis()-startTime < 100){
-    if(dataReady){
-      dRaw = readData();
-      //Serial.print(dRaw.ch1[0], HEX);
-      //Serial.print(' ');
-      //Serial.print(dRaw.ch1[1], HEX);
-      //Serial.print(' ');
-      //Serial.println(dRaw.ch1[2], HEX);
-      data = processADSData(dRaw);
-      Serial.println(data.ch1p, 4);
-    }
-    yield();
+  while (millis()-startTime < 5000) {
+      readLoop();
   }
-  Serial.println("Done collecting");
 
-  detachInterrupt(digitalPinToInterrupt(mc_drdy));
+  // Stop reading data, turn on test signal for all channels, start again.
+  sendCmd(SDATAC);
+  if (dataReady) readData();
 
-    
+  writeRegister(CONFIG2, 0xD4);
+  for (int i=CH1SET; i<=CH8SET; i++){
+    writeRegister(i, 0x05);
+  }
+ 
+  sendCmd(RDATAC);
+
+  // Run test signal for 5 seconds
+  startTime = millis();
+  while(millis()-startTime < 5000){
+    readLoop();
+  }
+
+  sendCmd(SDATAC);
+  if (dataReady) readData();
+
+  // SET UP FOR REAL READINGS 
+  
+  writeRegister(CONFIG2, 0xC0); // Turn off test signal 
+  writeRegister(CONFIG3, 0xEC); // Turn on the internal reference buffer & bias buffer
+
+  for (int i=CH1SET; i<=CH1SET; i++){
+    writeRegister(i, 0x50);  // Set ch1 to normal operation, gain = 12
+  }
+
+  for (int i=CH2SET; i<=CH8SET; i++){
+    writeRegister(i, 0x81); // Turn off channels 2-8
+  }
+
+  writeRegister(BIAS_SENSP, 0x01);  // Connect 1-4 to the bias derivation
+  writeRegister(BIAS_SENSN, 0x01);
+
+  writeRegister(MISC1, 0x20); // Ties all the negative electrode inputs to the reference
+
+  sendCmd(RDATAC);
+  
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
-
+  readLoop();
 }
