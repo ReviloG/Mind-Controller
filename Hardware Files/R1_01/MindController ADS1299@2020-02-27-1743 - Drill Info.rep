@@ -1,0 +1,22 @@
+ULTIBOARD DRILL REPORT
+
+Design: MindController ADS1299@2020-02-27-1743
+
+DRILL FILE SETTINGS
+Excellon 2, Absolute, Inch, 2.4 
+
+
+DEFINITION COPPER LAYERS
+Copper Top
+Copper Bottom
+
+
+--------------------------------------------------------------------
+
+DRILLFILE                                                               LAMINATION
+MindController ADS1299@2020-02-27-1743 - Copper Top-Copper Bottom.drl   Copper Top .. Copper Bottom
+
+TOOL     SIZE   TYPE  COUNT
+   1   0.0394    PTH     19
+   2   0.0100    PTH     11
+   3   0.1181   NPTH      4
