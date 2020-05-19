@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from matplotlib.pyplot import plot
 from matplotlib.pyplot import show
 import pandas as pd
+import os
 
 from scipy.fft import fft, ifft
 
@@ -531,8 +532,12 @@ def get_data_and_labels(data):
 def make_network(args):
 
     input_tensor = Input(shape=(args['sample_size'] * args['n_channels'],))
-    x = Dense(32, activation='relu')(input_tensor)
+    x = Dense(128, activation='relu')(input_tensor)
+    x = Dense(64, activation='relu')(x)
     x = Dense(32, activation='relu')(x)
+    x = Dense(16, activation='relu')(x)
+    x = Dense(8, activation='relu')(x)
+    x = Dense(4, activation='relu')(x)
     output_tensor = Dense(2, activation='softmax')(x)
     model = Model(input_tensor, output_tensor)
     model.compile(optimizer='adam',
@@ -600,7 +605,7 @@ def get_predictions(pred_data, models, args):
 
     pred_args = []
     cols_over_thresh = np.max(preds, axis = 0) > args['nn_thresh']
-    for i,v in enumerate(cols_over_threh):
+    for i,v in enumerate(cols_over_thresh):
         if v == True:
             pred_args.append(np.argmax(preds[:, i]))
         if v == False:
@@ -620,7 +625,6 @@ def convert_preds_to_commands(predictions):
         if predictions[i] == 3:
             commands.append('Do nothing')
     return commands
-
 
 def generate_sample_train_test():
     X_train_gen = {x:np.random.randint(16,
@@ -655,7 +659,7 @@ def separate_labels_into_BUD(X_train, y_train):
     y_train_U = 1 * (y == 2)
     y_train_D= 1 * (y == 3)
 
-    return X, y_B_train, y_U_train, y_D_train
+    return X, y_train_B, y_train_U, y_train_D
 
 def train_networks(X, y_train_B, y_train_U, y_train_D, networks, epochs):
     networks['B'].fit(X, y_train_B, epochs = epochs)
@@ -663,9 +667,8 @@ def train_networks(X, y_train_B, y_train_U, y_train_D, networks, epochs):
     networks['D'].fit(X, y_train_U, epochs = epochs)
 
 
-def train_networks_final(X_train, y_train, networks, n_epochs):
-    X, y_train_B, y_train_U, y_train_D  = separate_labels_into_BUD(X_train,
-                                                                   y_train)
+def train_networks_final(X_train, networks, n_epochs):
+    X, y_train_B, y_train_U, y_train_D  = shuffle_and_get_y_trains(X_train)
     train_networks(X, y_train_B, y_train_U, y_train_D, networks, n_epochs)
     
 def test_networks_final(pred_data, networks, args):
@@ -705,91 +708,91 @@ def convert_data_to_nn_form(data, args):
         data = data.reshape(1, data.shape[0] * data.shape[1])
         return data
 
+def convert_directory_data(directory):
 
-################################################################################
-################################################################################
-#
-#                              Set Up
-#
-################################################################################
-################################################################################
-
-# Set up the data
-
-#Import all the functions from the location the file:
-# "interface_code_functions.py" is stored
-
-import os
-directory = 'c://Users/Oliver/Desktop/H'+\
-            'omework/2020/Spring 2020/Senior_design_2'
-os.chdir(directory)
-
-
-#8 channels, 1000 images, 0 mean for the noise, standard deviation 1,
-#command_threshold is the % that must be crossed to be considered correct.
-
-args = name(n_channels = 8, sample_size = 1000, mean = 0, std = 1,
-            command_threshold = 0.50, nn_thresh = 0.50)
-
-
-
-#Set window and number of standard deviations for the Bollinger Bands
-w_size = 8
-n_stds = 2
-
-
-#Create test band data
-bands = generate_n_bollinger_bands(args, 3, w_size, n_stds)
-
-#Create test stream data
-stream = to_dataframe(args, generate_samples_2(args))
-command = compare_stream_to_bands(stream, bands, args)
-
-#send_to_program(command)
-
-def send_to_program(command):
-
-    """The argument "command" will be a string and the output of this function
-    will be either (1) No output, (2) Moving the slider up, (3) Moving the
-    slider down, or (4) switching the button from on to off or vice versa
-
-    Some test code you can play with and modify.  It generates a list of random
-    numbers from 0 to 3 with certain probabilities and based on which number
-    it gets it sends the appropriate command to the program.
-
-    import numpy as np
+    #Only read in the files that are ".txt" files.
+    files = os.listdir()
+    files = [f for f in files if ((f[-4:]) == '.txt')]
     
-    n_tests = 1000  #The number of tests you can run.
-    zero_prob = 0.5  #The probability of getting a zero in the list
-    other_prob = (1-zero_prob) / 3  #The other probabilities for the non-zeros
-    test_commands = np.random.choice([0,1,2,3], n_tests,
-    p = [zero_prob, other_prob, other_prob, other_prob])
+    data_list = []
+    for file in files[:100]:
+        with open(file, 'r') as f:
+            raw = f.read()
+        content_strings = raw.split('\n')
 
+        content = []
+        for x in content_strings:
+            string_chars = x.split(' ')
+            string_chars = [a for a in string_chars if (a != '')]
+            content.append(string_chars)
+        content = [c for c in content if len(c) != 0]
 
-    for i in range(n_tests):
-        if test_commands[i] == 0:
-            send_to_program('Do Nothing')
-        if test_commands[i] == 1:
-            send_to_program('U')
-        if test_commands[i] == 2:
-            send_to_program('D')
-        if test_commands[i] == 3:
-            send_to_program('B')
+        content = np.array(content).astype(float)
 
-    """
+        content_nn_form = content.ravel()
+        data_list.append(content_nn_form)
     
-    if command == 'Do Nothing':
-        #Do nothing with the program, just wait for the next data command
-        return 'Do Nothing'
-    if command == 'U':
-        #Move the slider's current position up
-        return 'U'
-    if command == 'D':
-        #Move the slider's current position down
-        return 'D'
-    if command == 'B':
-        #Switch the button from off to on or vice versa.
-        return 'B'
+    return data_list             
+
+def get_data_from_dirs(directory, dir_list):
+    #directory = train_dir
+    data_dict = {}
+    names_list = ['B', 'U', 'D']
+    for i,d in enumerate(dir_list):
+        D = directory + d
+        os.chdir(D)
+        x = convert_directory_data(D)
+        data_dict[names_list[i]] = x
+
+    for n in names_list:
+        data_dict[n] = np.array(data_dict[n])
+        
+    return data_dict
+
+def get_train_test_data():
+    root = 'C://Users/Oliver/Desktop/Homework/2020/' + \
+                         'Spring 2020/Senior_design_2'
+
+    train_dir = root + '/Training'
+    test_dir = root + '/Testing'
+
+    B_dir = '/Button'
+    U_dir = '/Up'
+    D_dir =  '/Down'
+
+    dir_list = [B_dir, U_dir, D_dir]
+
+    train = get_data_from_dirs(train_dir, dir_list)
+    test = get_data_from_dirs(test_dir, dir_list)           
+    
+    directory = os.chdir(root)
+    return train, test
+
+
+def shuffle_and_get_y_trains(X_train):
+    X_B = X_train['B']
+    X_U = X_train['U']
+    X_D = X_train['D']
+
+    y_B = 1 * np.ones((X_B.shape[0],))
+    y_U = 2 * np.ones((X_U.shape[0],))
+    y_D = 3 * np.ones((X_D.shape[0],))
+
+    X = np.vstack([X_B, X_U, X_D])
+    y = np.concatenate([y_B, y_U, y_D])
+
+    indices = np.arange(X.shape[0])
+    np.random.shuffle(indices)
+
+    X = X[indices]
+    y = y[indices]
+
+    y_train_B = 1 * (y == 1)
+    y_train_U = 1 * (y == 2)
+    y_train_D= 1 * (y == 3)
+
+    return X, y_train_B, y_train_U, y_train_D
+
 
 
 
@@ -801,42 +804,39 @@ def send_to_program(command):
 ################################################################################
 ################################################################################
 
-###These are the arguments for the amplitude, frequency, and offset
-###For generating the dataset
-##B_args = [10, 3, 45]
-##U_args = [8, 5, 22.5]
-##D_args = [6, 2, 90]
-##
-###Dictionary containing all generated samples for the nn test
-###Create a dictionary that contains lists of 100 samples of each B,U, and D.
-###X_train['B'] is a list
-##nn_samples = 100
-##X_train = generate_nn_samples(args, nn_samples, B_args, U_args, D_args)
-##
-##X_train_good = convert_data_to_nn_form(X_train, args)
-##X_train_final, labels = get_data_and_labels(X_train_good)
-##
+#Part 0: Set up the arguments for the data shapes and neural networks.
+
+#8 channels, 1000 images, 0 mean for the noise, standard deviation 1,
+#command_threshold is the % that must be crossed to be considered correct.
+
+args = name(n_channels = 8, sample_size = 40000, mean = 0, std = 1,
+            command_threshold = 0.50, nn_thresh = 0.50)
+
+#Part 1: Get the training data, set the network training data.
+
+X_train, X_test = get_train_test_data()
+
+#X_train, y_train = generate_sample_train_test()
+
+
+#Part 2: Set up the networks.
 
 #Make the models
 model_B = make_network(args)
 model_U = make_network(args)
 model_D = make_network(args)
 
+#Create the network dictionary.
 networks = name(B = model_B, U = model_U, D = model_D)
 
-#Create the network dictionary and epoch numbers.
-networks = name(B = model_B, U = model_U, D = model_D)
-n_epochs = 10
-
-X_train, y_train = generate_sample_train_test()
-
-#Part 2: Train the networks.
+#Part 3: Train the networks.
 
 #X_train must be a dictionary (keys: "B", "U", "D") of numpy arrays of shape
 #(m, n_channels * sample_size), where "m" is the number of data points
 #that were collected. y_train is a dictionary (keys: "B", "U", "D") of
 #numpy arrays of shape (m,) where "m" is the number of data points.
-train_networks_final(X_train, y_train, networks, n_epochs)
+n_epochs = 10
+train_networks_final(X_train, networks, n_epochs)
 
 #Part 3: Test data on the networks.
 
@@ -844,7 +844,12 @@ train_networks_final(X_train, y_train, networks, n_epochs)
 #of shape (n_channels, sample_size)
 prediction_data = np.random.randint(16, size = (3, 8, 1000))
 pred_data = convert_data_to_nn_form(prediction_data, args)
-commands = test_networks_final(pred_data, networks, args)
+
+pred_data = convert_data_to_nn_form(X_test, args)
+commands = test_networks_final(X_test['D'], networks, args)
+print(commands)
+
+
 
 ################################################################################
 ################################################################################
@@ -1002,44 +1007,145 @@ commands = test_networks_final(pred_data, networks, args)
 ##test_9(variance)
 
 
+##################################################################################
+##################################################################################
+###
+###                              FFT Test
+###
+##################################################################################
+##################################################################################
+##
+##
+##from scipy.fft import fft, ifft
+##
+###Take the fft of each column in the dataframe, "axis=0" specifies this.
+###Do the same for each band
+##stream_fft = fft(stream, axis = 0)
+##bands_fft = {key:{i:fft(bands[key][i], axis = 0) for i in range(len(bands))} \
+##             for key in bands.keys()}
+##
+##fig, ax = plt.subplots(8,1)
+##for i in range(8):
+##    ax[i].plot(stream_fft[:, i])
+##plt.show()
+##
+##a = np.sin( np.linspace(0,2*np.pi, 1000)) + np.cos( np.linspace(0,2*np.pi, 1000))
+####noise = np.random.normal(0,1, 1000)
+####a = a + noise
+##b = fft(a)
+##
+##fig, ax = plt.subplots(2,1)
+##ax[0].plot(a)
+##ax[1].plot(np.real(b))
+##
+##plt.show()
+##
+##c = generate_samples_2(args)
+##c = to_dataframe(args, c)
+##fig, ax = plt.subplots(8,1)
+##for i in range(8):
+##    ax[i].plot(fft(c, axis = 0)[:, i])
+##    ax[i].plot(c.iloc[:, i])
+##
+##plt.show()
+##
+##
+#####These are the arguments for the amplitude, frequency, and offset
+#####For generating the dataset
+####B_args = [10, 3, 45]
+####U_args = [8, 5, 22.5]
+####D_args = [6, 2, 90]
+####
+#####Dictionary containing all generated samples for the nn test
+#####Create a dictionary that contains lists of 100 samples of each B,U, and D.
+#####X_train['B'] is a list
+####nn_samples = 100
+####X_train = generate_nn_samples(args, nn_samples, B_args, U_args, D_args)
+####
+####X_train_good = convert_data_to_nn_form(X_train, args)
+####X_train_final, labels = get_data_and_labels(X_train_good)
+####
+##
+##
+####
+####def send_to_program(command):
+####
+####    """The argument "command" will be a string and the output of this function
+####    will be either (1) No output, (2) Moving the slider up, (3) Moving the
+####    slider down, or (4) switching the button from on to off or vice versa
+####
+####    Some test code you can play with and modify.  It generates a list of random
+####    numbers from 0 to 3 with certain probabilities and based on which number
+####    it gets it sends the appropriate command to the program.
+####
+####    import numpy as np
+####    
+####    n_tests = 1000  #The number of tests you can run.
+####    zero_prob = 0.5  #The probability of getting a zero in the list
+####    other_prob = (1-zero_prob) / 3  #The other probabilities for the non-zeros
+####    test_commands = np.random.choice([0,1,2,3], n_tests,
+####    p = [zero_prob, other_prob, other_prob, other_prob])
+####
+####
+####    for i in range(n_tests):
+####        if test_commands[i] == 0:
+####            send_to_program('Do Nothing')
+####        if test_commands[i] == 1:
+####            send_to_program('U')
+####        if test_commands[i] == 2:
+####            send_to_program('D')
+####        if test_commands[i] == 3:
+####            send_to_program('B')
+####
+####    """
+####    
+####    if command == 'Do Nothing':
+####        #Do nothing with the program, just wait for the next data command
+####        return 'Do Nothing'
+####    if command == 'U':
+####        #Move the slider's current position up
+####        return 'U'
+####    if command == 'D':
+####        #Move the slider's current position down
+####        return 'D'
+####    if command == 'B':
+####        #Switch the button from off to on or vice versa.
+####        return 'B'
+##
+
+
 ################################################################################
 ################################################################################
 #
-#                              FFT Test
+#                              Set Up
 #
 ################################################################################
 ################################################################################
 
+### Set up the data
+##
+###Import all the functions from the location the file:
+### "interface_code_functions.py" is stored
+##
+##import os
+##directory = 'c://Users/Oliver/Desktop/H'+\
+##            'omework/2020/Spring 2020/Senior_design_2'
+##os.chdir(directory)
+##
 
-from scipy.fft import fft, ifft
 
-#Take the fft of each column in the dataframe, "axis=0" specifies this.
-#Do the same for each band
-stream_fft = fft(stream, axis = 0)
-bands_fft = {key:{i:fft(bands[key][i], axis = 0) for i in range(len(bands))} \
-             for key in bands.keys()}
-
-fig, ax = plt.subplots(8,1)
-for i in range(8):
-    ax[i].plot(stream_fft[:, i])
-plt.show()
-
-a = np.sin( np.linspace(0,2*np.pi, 1000)) + np.cos( np.linspace(0,2*np.pi, 1000))
-##noise = np.random.normal(0,1, 1000)
-##a = a + noise
-b = fft(a)
-
-fig, ax = plt.subplots(2,1)
-ax[0].plot(a)
-ax[1].plot(np.real(b))
-
-plt.show()
-
-c = generate_samples_2(args)
-c = to_dataframe(args, c)
-fig, ax = plt.subplots(8,1)
-for i in range(8):
-    ax[i].plot(fft(c, axis = 0)[:, i])
-    ax[i].plot(c.iloc[:, i])
-
-plt.show()
+##
+###Set window and number of standard deviations for the Bollinger Bands
+##w_size = 8
+##n_stds = 2
+##
+##
+###Create test band data
+##bands = generate_n_bollinger_bands(args, 3, w_size, n_stds)
+##
+###Create test stream data
+##stream = to_dataframe(args, generate_samples_2(args))
+##command = compare_stream_to_bands(stream, bands, args)
+##
+###send_to_program(command)
+##
